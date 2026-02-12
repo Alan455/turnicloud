@@ -9,25 +9,28 @@ st.set_page_config(page_title="Turni", page_icon="📅", layout="centered")
 # --- CSS: Pulizia interfaccia ---
 st.markdown("""
     <style>
-    /* Nasconde menu e footer per recuperare spazio */
     #MainMenu, footer, header {visibility: hidden;}
-    
-    /* Riduce margini per sfruttare tutto lo schermo */
     .block-container {
         padding-top: 1rem !important;
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
         padding-bottom: 2rem !important;
     }
-    
-    /* Migliora l'aspetto dei bottoni */
     div[data-testid="stButton"] button {
         width: 100%;
         border-radius: 8px;
     }
+    /* Stile per i box dei totali */
+    .metric-container {
+        background-color: #f0f2f6;
+        padding: 10px;
+        border-radius: 10px;
+        text-align: center;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- OPZIONI AGGIORNATE ---
-# Ho aggiunto 'Ima' e tolto 'Permesso' come richiesto
+# --- OPZIONI ---
 OPZIONI = ["Mattina", "Pomeriggio", "Sera", "Notte", "Ferie", "Malattia", "Ima"]
 
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -35,22 +38,13 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 def gestisci_dati(mode="read", df_in=None):
     try:
         if mode == "read":
-            # Leggiamo il foglio
             df = conn.read(worksheet="Foglio1", usecols=[0, 1, 2], ttl=0)
-            
-            # Controllo sicurezza colonne (se mancano le crea)
             if "Tipo" not in df.columns: df["Tipo"] = ""
             if "Note" not in df.columns: df["Note"] = ""
-            
-            # Pulizia dati
             df["Note"] = df["Note"].fillna("").astype(str)
             df["Data"] = pd.to_datetime(df["Data"], errors='coerce').dt.date
-            
-            # Rimuove righe vuote e ordina per data
             return df.dropna(subset=["Data"]).sort_values(by="Data", ascending=False)
-            
         elif mode == "write":
-            # Converte le date in stringa per Google Sheets
             df_in["Data"] = pd.to_datetime(df_in["Data"]).dt.strftime('%Y-%m-%d')
             conn.update(worksheet="Foglio1", data=df_in)
             return True
@@ -58,25 +52,21 @@ def gestisci_dati(mode="read", df_in=None):
         st.error(f"Errore database: {e}")
         return pd.DataFrame(columns=["Data", "Tipo", "Note"])
 
-# --- 1. SEZIONE INSERIMENTO (Comoda per Mobile) ---
-st.markdown("### 📅 Nuovo Turno")
-
+# --- 1. SEZIONE INSERIMENTO ---
+st.markdown("### ➕ Nuovo Turno")
 with st.container():
-    # Riga 1: Data e Tipo
     c1, c2 = st.columns([1, 1.5])
     with c1:
         data_input = st.date_input("Data", datetime.today(), format="DD/MM/YYYY")
     with c2:
         tipo_turno = st.selectbox("Tipo", OPZIONI)
 
-    # Riga 2: Note e Bottone Salva
     c3, c4 = st.columns([2, 1])
     with c3:
-        note_input = st.text_input("Note", placeholder="Es. cambio...")
+        note_input = st.text_input("Note", placeholder="Note...")
     with c4:
-        # Spaziatura per allineare il bottone all'input di testo
         st.markdown("<div style='margin-top: 29px;'></div>", unsafe_allow_html=True)
-        if st.button("➕ SALVA", type="primary"):
+        if st.button("SALVA"):
             df = gestisci_dati("read")
             nuova = pd.DataFrame([{"Data": data_input, "Tipo": tipo_turno, "Note": note_input}])
             gestisci_dati("write", pd.concat([df, nuova], ignore_index=True))
@@ -85,46 +75,58 @@ with st.container():
 
 st.divider()
 
-# --- 2. TABELLA STORICO (Compatta e Modificabile) ---
+# --- 2. NUOVA SEZIONE: TOTALI TURNI ---
 df = gestisci_dati("read")
 
 if not df.empty:
-    st.caption("📝 Storico (Modifica qui sotto)")
+    st.markdown("### 📊 Riepilogo Mese Corrente")
     
-    # Configurazione della tabella
+    # Filtriamo i dati per il mese e anno attuale
+    oggi = datetime.now()
+    df_mese = df[
+        (pd.to_datetime(df["Data"]).dt.month == oggi.month) & 
+        (pd.to_datetime(df["Data"]).dt.year == oggi.year)
+    ]
+    
+    # Calcolo totali
+    totale_giorni = len(df_mese)
+    # Escludiamo Ferie, Malattia e Ima dal conteggio dei turni "lavorati" effettivi se vuoi, 
+    # oppure mostriamo tutto. Qui mostro il totale righe nel mese.
+    
+    col_t1, col_t2 = st.columns(2)
+    col_t1.metric("Giorni totali", totale_giorni)
+    
+    # Mostriamo il dettaglio in un piccolo expander per non occupare spazio
+    with st.expander("Dettaglio turni"):
+        conteggio = df_mese["Tipo"].value_counts()
+        for opzione in OPZIONI:
+            qta = conteggio.get(opzione, 0)
+            if qta > 0:
+                st.write(f"**{opzione}**: {qta}")
+
+    st.divider()
+
+    # --- 3. TABELLA STORICO ---
+    st.caption("📝 Storico (Modifica qui sotto)")
     column_config = {
-        "Data": st.column_config.DateColumn(
-            "Data", 
-            format="DD/MM/YYYY",  # Formato italiano
-            required=True
-        ),
-        "Tipo": st.column_config.SelectboxColumn(
-            "Tipo",
-            options=OPZIONI, # Usa la nuova lista con Ima
-            required=True
-        ),
-        "Note": st.column_config.TextColumn(
-            "Note"
-        )
+        "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", required=True),
+        "Tipo": st.column_config.SelectboxColumn("Tipo", options=OPZIONI, required=True),
+        "Note": st.column_config.TextColumn("Note")
     }
 
-    # EDITOR: Permette di modificare e cancellare righe
     df_modificato = st.data_editor(
         df,
         column_config=column_config,
-        num_rows="dynamic",       # Permette di aggiungere/togliere righe
-        use_container_width=True, # Occupa tutto lo schermo
-        hide_index=True           # Nasconde i numeri di riga
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True
     )
 
-    # Pulsante di salvataggio manuale per sicurezza
-    if st.button("💾 Salva Modifiche Tabella", type="primary", use_container_width=True):
+    if st.button("💾 Salva Modifiche Tabella", type="primary"):
         if not df.reset_index(drop=True).equals(df_modificato.reset_index(drop=True)):
             gestisci_dati("write", df_modificato)
-            st.toast("Tabella aggiornata!", icon="💾")
+            st.toast("Aggiornato!", icon="💾")
             st.rerun()
-        else:
-            st.toast("Nessuna modifica da salvare.")
 else:
     st.info("Nessun turno inserito.")
     
