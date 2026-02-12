@@ -3,34 +3,38 @@ import pandas as pd
 from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 
-# --- Configurazione Mobile ---
-st.set_page_config(page_title="Turni", page_icon="📅", layout="centered")
+# --- CONFIGURAZIONE PAGINA MOBILE ---
+st.set_page_config(page_title="Turni", page_icon="📱", layout="centered")
 
-# --- CSS: Pulizia interfaccia ---
+# --- CSS: OTTIMIZZAZIONE TOUCH ---
 st.markdown("""
     <style>
+    /* Nasconde header/footer inutili */
     #MainMenu, footer, header {visibility: hidden;}
+    
+    /* Spaziatura ottimizzata per le dita */
     .block-container {
         padding-top: 1rem !important;
-        padding-left: 0.5rem !important;
-        padding-right: 0.5rem !important;
-        padding-bottom: 2rem !important;
+        padding-bottom: 5rem !important; /* Spazio extra in basso per lo scroll */
     }
+    
+    /* Pulsanti grandi e facili da premere */
     div[data-testid="stButton"] button {
         width: 100%;
-        border-radius: 8px;
+        height: 50px; /* Più alto per il dito */
+        border-radius: 12px;
+        font-weight: bold;
+        font-size: 18px;
     }
-    /* Stile per i box dei totali */
-    .metric-container {
-        background-color: #f0f2f6;
-        padding: 10px;
-        border-radius: 10px;
-        text-align: center;
+    
+    /* Stile per i totali */
+    div[data-testid="stMetricValue"] {
+        font-size: 24px;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- OPZIONI ---
+# --- DATI ---
 OPZIONI = ["Mattina", "Pomeriggio", "Sera", "Notte", "Ferie", "Malattia", "Ima"]
 
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -49,69 +53,71 @@ def gestisci_dati(mode="read", df_in=None):
             conn.update(worksheet="Foglio1", data=df_in)
             return True
     except Exception as e:
-        st.error(f"Errore database: {e}")
         return pd.DataFrame(columns=["Data", "Tipo", "Note"])
 
-# --- 1. SEZIONE INSERIMENTO ---
-st.markdown("### ➕ Nuovo Turno")
-with st.container():
-    c1, c2 = st.columns([1, 1.5])
-    with c1:
-        data_input = st.date_input("Data", datetime.today(), format="DD/MM/YYYY")
-    with c2:
-        tipo_turno = st.selectbox("Tipo", OPZIONI)
+# --- TITOLO MINIMAL ---
+st.markdown("### 📅 I Miei Turni")
 
-    c3, c4 = st.columns([2, 1])
-    with c3:
-        note_input = st.text_input("Note", placeholder="Note...")
-    with c4:
-        st.markdown("<div style='margin-top: 29px;'></div>", unsafe_allow_html=True)
-        if st.button("SALVA"):
-            df = gestisci_dati("read")
-            nuova = pd.DataFrame([{"Data": data_input, "Tipo": tipo_turno, "Note": note_input}])
-            gestisci_dati("write", pd.concat([df, nuova], ignore_index=True))
-            st.toast("Salvato!", icon="✅")
-            st.rerun()
+# --- 1. NUOVO INSERIMENTO (Ottimizzato) ---
+# Usiamo un container con bordo per evidenziare l'area di azione
+with st.container(border=True):
+    st.caption("Nuovo Inserimento")
+    
+    # DATA: Sempre default a OGGI
+    col_data, col_note = st.columns([1, 1.5])
+    with col_data:
+        data_input = st.date_input("Data", datetime.today(), format="DD/MM/YYYY", label_visibility="collapsed")
+    with col_note:
+        note_input = st.text_input("Note", placeholder="Note opzionali...", label_visibility="collapsed")
 
-st.divider()
+    # TIPO: Usiamo i PILLS (Pillole) o RADIO orizzontale
+    # È molto più veloce del menu a tendina: un tocco e via.
+    # Se st.pills non va (versione vecchia), usa st.radio
+    try:
+        tipo_turno = st.pills("Tipo", OPZIONI, selection_mode="single", label_visibility="collapsed")
+    except AttributeError:
+        tipo_turno = st.radio("Tipo", OPZIONI, horizontal=True, label_visibility="collapsed")
 
-# --- 2. NUOVA SEZIONE: TOTALI TURNI ---
+    # SPAZIO E BOTTONE
+    st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
+    
+    # Il bottone è disabilitato se non hai scelto il turno (Feedback visivo)
+    if st.button("SALVA TURNO ✅", type="primary", disabled=(not tipo_turno)):
+        df = gestisci_dati("read")
+        nuova = pd.DataFrame([{"Data": data_input, "Tipo": tipo_turno, "Note": note_input}])
+        gestisci_dati("write", pd.concat([df, nuova], ignore_index=True))
+        st.toast(f"Salvato: {tipo_turno} il {data_input.strftime('%d/%m')}", icon="🎉")
+        st.rerun()
+
+# --- 2. DASHBOARD TOTALI (Compatta) ---
 df = gestisci_dati("read")
 
 if not df.empty:
-    st.markdown("### 📊 Riepilogo Mese Corrente")
-    
-    # Filtriamo i dati per il mese e anno attuale
     oggi = datetime.now()
-    df_mese = df[
-        (pd.to_datetime(df["Data"]).dt.month == oggi.month) & 
-        (pd.to_datetime(df["Data"]).dt.year == oggi.year)
-    ]
+    # Filtro mese corrente
+    mask_mese = (pd.to_datetime(df["Data"]).dt.month == oggi.month) & (pd.to_datetime(df["Data"]).dt.year == oggi.year)
+    df_mese = df[mask_mese]
     
-    # Calcolo totali
-    totale_giorni = len(df_mese)
-    # Escludiamo Ferie, Malattia e Ima dal conteggio dei turni "lavorati" effettivi se vuoi, 
-    # oppure mostriamo tutto. Qui mostro il totale righe nel mese.
-    
-    col_t1, col_t2 = st.columns(2)
-    col_t1.metric("Giorni totali", totale_giorni)
-    
-    # Mostriamo il dettaglio in un piccolo expander per non occupare spazio
-    with st.expander("Dettaglio turni"):
-        conteggio = df_mese["Tipo"].value_counts()
-        for opzione in OPZIONI:
-            qta = conteggio.get(opzione, 0)
-            if qta > 0:
-                st.write(f"**{opzione}**: {qta}")
+    # Calcoli veloci
+    tot_turni = len(df_mese)
+    # Cerchiamo l'ultimo inserito per conferma visiva
+    ultimo = df.iloc[0]
+    txt_ultimo = f"{ultimo['Tipo']} ({ultimo['Data'].strftime('%d/%m')})"
 
-    st.divider()
+    # Visualizzazione a 2 colonne
+    k1, k2 = st.columns(2)
+    k1.metric("Totale Mese", tot_turni)
+    k2.metric("Ultimo Inserito", txt_ultimo)
+
+    st.markdown("---")
 
     # --- 3. TABELLA STORICO ---
-    st.caption("📝 Storico (Modifica qui sotto)")
+    st.caption("Modifica o Cancella qui sotto 👇")
+    
     column_config = {
-        "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", required=True),
-        "Tipo": st.column_config.SelectboxColumn("Tipo", options=OPZIONI, required=True),
-        "Note": st.column_config.TextColumn("Note")
+        "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", required=True, width="small"),
+        "Tipo": st.column_config.SelectboxColumn("Tipo", options=OPZIONI, required=True, width="medium"),
+        "Note": st.column_config.TextColumn("Note", width="small")
     }
 
     df_modificato = st.data_editor(
@@ -119,14 +125,16 @@ if not df.empty:
         column_config=column_config,
         num_rows="dynamic",
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
+        height=350 # Altezza fissa per scorrere bene col dito
     )
 
-    if st.button("💾 Salva Modifiche Tabella", type="primary"):
+    if st.button("💾 SALVA MODIFICHE TABELLA"):
+        # Reset index serve per confrontare i dati ignorando l'ordine degli indici
         if not df.reset_index(drop=True).equals(df_modificato.reset_index(drop=True)):
             gestisci_dati("write", df_modificato)
-            st.toast("Aggiornato!", icon="💾")
+            st.toast("Tabella Aggiornata!", icon="💾")
             st.rerun()
 else:
-    st.info("Nessun turno inserito.")
+    st.info("Inizia aggiungendo un turno sopra! 👆")
     
