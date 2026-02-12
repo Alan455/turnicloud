@@ -3,149 +3,115 @@ import pandas as pd
 from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 
-# --- Configurazione Mobile ---
+# --- Configurazione Estrema ---
 st.set_page_config(page_title="Turni", page_icon="⚡", layout="centered")
 
-# --- CSS per Compattare al Massimo ---
+# --- CSS: Rimozione Spazi Vuoti (Aggressive) ---
 st.markdown("""
     <style>
-    /* Nasconde menu e footer */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
+    /* Nasconde tutto l'inutile */
+    #MainMenu, footer, header {visibility: hidden;}
     
-    /* Riduce i margini della pagina */
+    /* Margini al minimo storico */
     .block-container {
-        padding-top: 1rem;
-        padding-bottom: 2rem;
+        padding-top: 0.5rem !important;
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+        padding-bottom: 2rem !important;
     }
     
-    /* Rende i bottoni "X" più piccoli e rossi */
+    /* Riduce spazio tra gli elementi */
+    div[data-testid="stVerticalBlock"] { gap: 0.3rem; }
+    
+    /* Input più compatti */
+    .stDateInput, .stSelectbox, .stTextInput { margin-bottom: -15px !important; }
+    
+    /* Bottone 'X' rosso e minuscolo */
     div[data-testid="stButton"] button {
-        padding: 0px 10px;
-        min-height: 35px;
-    }
-    
-    /* Rende il testo delle colonne più compatto */
-    p {
-        margin-bottom: 0px;
+        background-color: #ffeded;
+        color: red;
+        border: none;
+        padding: 0px 5px;
+        min-height: 25px;
+        height: 25px;
+        line-height: 1;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- Categorie & Emojis ---
-OPZIONI_TURNI = {
-    "Mattina": "☀️",
-    "Pomeriggio": "🌤️",
-    "Sera": "🌆",
-    "Notte": "🌙",
-    "Ferie": "🏖️",
-    "Malattia": "🤒",
-    "Permesso": "📝"
-}
-LISTA_TIPI = list(OPZIONI_TURNI.keys())
+# --- Dati ---
+OPZIONI = {"Mattina": "☀️", "Pomeriggio": "🌤️", "Sera": "🌆", "Notte": "🌙", "Ferie": "🏖️", "Malattia": "🤒"}
+LISTA_TIPI = list(OPZIONI.keys())
 
-# --- Connessione Google ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-def carica_dati():
+def gestisci_dati(mode="read", df_in=None):
     try:
-        df = conn.read(worksheet="Foglio1", usecols=[0, 1, 2], ttl=0)
-        df = df.dropna(how="all")
-        if "Note" not in df.columns: df["Note"] = ""
-        df["Note"] = df["Note"].fillna("").astype(str)
-        df["Data"] = pd.to_datetime(df["Data"], errors='coerce').dt.date
-        df = df.dropna(subset=["Data"])
-        return df
+        if mode == "read":
+            df = conn.read(worksheet="Foglio1", usecols=[0, 1, 2], ttl=0).dropna(how="all")
+            if "Note" not in df.columns: df["Note"] = ""
+            df["Note"] = df["Note"].fillna("").astype(str)
+            df["Data"] = pd.to_datetime(df["Data"], errors='coerce').dt.date
+            return df.dropna(subset=["Data"]).sort_values(by="Data", ascending=False)
+        elif mode == "write":
+            df_in["Data"] = pd.to_datetime(df_in["Data"]).dt.strftime('%Y-%m-%d')
+            conn.update(worksheet="Foglio1", data=df_in)
+            return True
     except:
         return pd.DataFrame(columns=["Data", "Tipo", "Note"])
 
-def salva_dati(df):
-    try:
-        df["Data"] = pd.to_datetime(df["Data"]).dt.strftime('%Y-%m-%d')
-        df = df.sort_values(by="Data", ascending=False)
-        conn.update(worksheet="Foglio1", data=df)
-        return True
-    except Exception as e:
-        st.error(f"Errore: {e}")
-        return False
+# --- UI ULTRA COMPATTA ---
 
-# --- UI PRINCIPALE ---
-
-# Titolo minimal
-st.markdown("### 📅 I Miei Turni")
-
-# --- SEZIONE INSERIMENTO (Compatta) ---
+# 1. INSERIMENTO (Griglia 2x2 senza etichette)
 with st.container():
-    # Riga 1: Data e Tipo affiancati per risparmiare spazio verticale
-    c1, c2 = st.columns([1, 1.5])
+    c1, c2 = st.columns([1.2, 1.5], gap="small")
     with c1:
-        data_input = st.date_input("Data", datetime.today(), format="DD/MM/YYYY", label_visibility="collapsed")
+        # Data (Label nascosta)
+        data = st.date_input("D", datetime.today(), format="DD/MM", label_visibility="collapsed")
     with c2:
-        tipo_turno = st.selectbox("Tipo", LISTA_TIPI, label_visibility="collapsed")
+        # Tipo (Label nascosta)
+        tipo = st.selectbox("T", LISTA_TIPI, label_visibility="collapsed")
 
-    # Riga 2: Note e Bottone sulla stessa linea
-    c3, c4 = st.columns([2, 1])
+    c3, c4 = st.columns([2, 0.8], gap="small")
     with c3:
-        note_input = st.text_input("Note", placeholder="Note opzionali...", label_visibility="collapsed")
+        # Note
+        note = st.text_input("N", placeholder="Note...", label_visibility="collapsed")
     with c4:
-        if st.button("➕ SALVA", type="primary", use_container_width=True):
-            df = carica_dati()
-            nuova = pd.DataFrame([{"Data": data_input, "Tipo": tipo_turno, "Note": note_input}])
-            df = pd.concat([df, nuova], ignore_index=True)
-            salva_dati(df)
-            st.toast("Salvato!", icon="✅")
+        # Bottone Salva
+        if st.button("➕", type="primary", use_container_width=True):
+            df = gestisci_dati("read")
+            nuova = pd.DataFrame([{"Data": data, "Tipo": tipo, "Note": note}])
+            gestisci_dati("write", pd.concat([df, nuova], ignore_index=True))
             st.rerun()
 
-st.divider()
+st.markdown("<hr style='margin: 5px 0'>", unsafe_allow_html=True)
 
-# --- STORICO COMPATTO (Lista) ---
-df = carica_dati()
+# 2. LISTA MICRO (Una riga per turno)
+df = gestisci_dati("read")
 
 if not df.empty:
-    # Statistiche "Inline" (sulla stessa riga)
-    mese_corr = datetime.now().month
-    count = len(df[pd.to_datetime(df["Data"]).dt.month == mese_corr])
-    st.caption(f"Totale turni questo mese: **{count}**")
+    # Intestazione piccolissima
+    st.caption(f"Storico ({len(df)})")
     
-    # Intestazione piccola
-    st.markdown("**Ultimi Inserimenti:**")
-
-    # Ciclo per stampare le righe
-    for index, row in df.head(10).iterrows(): # Mostra solo ultimi 10 per non intasare
-        
-        tipo = row['Tipo']
-        emoji = OPZIONI_TURNI.get(tipo, "▪️")
-        data_fmt = row['Data'].strftime('%d/%m') # Solo giorno/mese (anno inutile)
-        giorno_sett = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"][row['Data'].weekday()]
-        
-        # --- LAYOUT RIGA COMPATTA ---
-        # Col 1: Data (Piccola) | Col 2: Info Turno (Grande) | Col 3: Cancella (Piccolo)
-        k1, k2, k3 = st.columns([1.2, 3, 0.8], vertical_alignment="center")
+    for i, row in df.head(15).iterrows():
+        # Layout: Data | Emoji+Tipo | X
+        k1, k2, k3 = st.columns([0.8, 2, 0.4], gap="small", vertical_alignment="center")
         
         with k1:
-            # Data in grassetto, grigio scuro
-            st.markdown(f"<span style='color:#555; font-size:0.9rem'><b>{data_fmt}</b><br><small>{giorno_sett}</small></span>", unsafe_allow_html=True)
-            
+            # Solo Giorno/Mese in grassetto
+            st.markdown(f"**{row['Data'].strftime('%d/%m')}**")
+        
         with k2:
-            # Emoji + Tipo + Nota (tutto su una riga se possibile)
-            nota_vis = f" <small style='color:gray'>({row['Note']})</small>" if row['Note'] else ""
-            st.markdown(f"<span style='font-size:1rem'>{emoji} <b>{tipo}</b>{nota_vis}</span>", unsafe_allow_html=True)
+            # Emoji + Tipo (Nota tra parentesi se c'è)
+            emoji = OPZIONI.get(row['Tipo'], "▪️")
+            txt_nota = f"<span style='color:gray; font-size:0.8em'> ({row['Note']})</span>" if row['Note'] else ""
+            st.markdown(f"{emoji} {row['Tipo']}{txt_nota}", unsafe_allow_html=True)
             
         with k3:
             # Bottone X minimale
-            if st.button("✕", key=f"del_{index}"):
-                df = df.drop(index)
-                salva_dati(df)
+            if st.button("x", key=f"d_{i}"):
+                gestisci_dati("write", df.drop(i))
                 st.rerun()
-        
-        # Linea sottile di separazione
-        st.markdown("<hr style='margin: 0.3rem 0; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
-
-    # Link per vedere tutto se serve
-    with st.expander("Vedi tabella completa"):
-        st.dataframe(df, use_container_width=True, hide_index=True)
-
 else:
-    st.info("Nessun dato.")
+    st.write("Lista vuota")
     
