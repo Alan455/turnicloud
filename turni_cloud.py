@@ -66,18 +66,15 @@ def gestisci_dati(mode="read", df_in=None):
 with st.container():
     c1, c2 = st.columns([1.2, 1.5], gap="small")
     with c1:
-        # Data (Label nascosta)
-        data = st.date_input("D", datetime.today(), format="DD/MM", label_visibility="collapsed")
+        # CORREZIONE QUI: Rimesso YYYY obbligatorio per evitare crash
+        data = st.date_input("D", datetime.today(), format="DD/MM/YYYY", label_visibility="collapsed")
     with c2:
-        # Tipo (Label nascosta)
         tipo = st.selectbox("T", LISTA_TIPI, label_visibility="collapsed")
 
     c3, c4 = st.columns([2, 0.8], gap="small")
     with c3:
-        # Note
         note = st.text_input("N", placeholder="Note...", label_visibility="collapsed")
     with c4:
-        # Bottone Salva
         if st.button("➕", type="primary", use_container_width=True):
             df = gestisci_dati("read")
             nuova = pd.DataFrame([{"Data": data, "Tipo": tipo, "Note": note}])
@@ -90,7 +87,6 @@ st.markdown("<hr style='margin: 5px 0'>", unsafe_allow_html=True)
 df = gestisci_dati("read")
 
 if not df.empty:
-    # Intestazione piccolissima
     st.caption(f"Storico ({len(df)})")
     
     for i, row in df.head(15).iterrows():
@@ -98,19 +94,18 @@ if not df.empty:
         k1, k2, k3 = st.columns([0.8, 2, 0.4], gap="small", vertical_alignment="center")
         
         with k1:
-            # Solo Giorno/Mese in grassetto
+            # QUI la visualizzazione resta compatta (solo Giorno/Mese)
             st.markdown(f"**{row['Data'].strftime('%d/%m')}**")
         
         with k2:
-            # Emoji + Tipo (Nota tra parentesi se c'è)
             emoji = OPZIONI.get(row['Tipo'], "▪️")
             txt_nota = f"<span style='color:gray; font-size:0.8em'> ({row['Note']})</span>" if row['Note'] else ""
             st.markdown(f"{emoji} {row['Tipo']}{txt_nota}", unsafe_allow_html=True)
             
         with k3:
-            # Bottone X minimale
             if st.button("x", key=f"d_{i}"):
                 gestisci_dati("write", df.drop(i))
                 st.rerun()
 else:
     st.write("Lista vuota")
+    
