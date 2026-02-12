@@ -1,36 +1,47 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 
 # --- Configurazione Mobile ---
-st.set_page_config(page_title="Turni App", page_icon="📱", layout="centered")
+st.set_page_config(page_title="Turni", page_icon="⚡", layout="centered")
 
-# --- CSS per nascondere elementi inutili e abbellire ---
+# --- CSS per Compattare al Massimo ---
 st.markdown("""
     <style>
-    /* Nasconde il menu in alto a destra e il footer */
+    /* Nasconde menu e footer */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Spaziatura più compatta per mobile */
+    /* Riduce i margini della pagina */
     .block-container {
         padding-top: 1rem;
-        padding-bottom: 5rem;
+        padding-bottom: 2rem;
+    }
+    
+    /* Rende i bottoni "X" più piccoli e rossi */
+    div[data-testid="stButton"] button {
+        padding: 0px 10px;
+        min-height: 35px;
+    }
+    
+    /* Rende il testo delle colonne più compatto */
+    p {
+        margin-bottom: 0px;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- Categorie con Emojis (Migliora lettura visiva) ---
+# --- Categorie & Emojis ---
 OPZIONI_TURNI = {
     "Mattina": "☀️",
     "Pomeriggio": "🌤️",
     "Sera": "🌆",
     "Notte": "🌙",
-    "Ferie": "Fn🏖️", # Fn = Ferie (Emoji per estetica)
-    "Malattia": "Fn🤒",
-    "Permesso": "Fn📝"
+    "Ferie": "🏖️",
+    "Malattia": "🤒",
+    "Permesso": "📝"
 }
 LISTA_TIPI = list(OPZIONI_TURNI.keys())
 
@@ -61,100 +72,80 @@ def salva_dati(df):
 
 # --- UI PRINCIPALE ---
 
-# 1. INTESTAZIONE (Semplice e pulita)
-st.title("📅 I Miei Turni")
+# Titolo minimal
+st.markdown("### 📅 I Miei Turni")
 
-# 2. SEZIONE INSERIMENTO (Espandibile ma aperta di default)
-# Usiamo un container con bordo per separarlo visivamente
-with st.container(border=True):
-    st.subheader("Nuovo Inserimento")
-    
-    # Riga 1: Data (con pulsanti rapidi "Oggi/Domani" sarebbe top, ma date_input è solido)
-    data_input = st.date_input("Seleziona Data", datetime.today(), format="DD/MM/YYYY")
-    
-    # Riga 2: Tipo Turno con "Pills" (Bottoni cliccabili)
-    # Se hai streamlit vecchio usa st.radio(..., horizontal=True)
-    try:
-        tipo_turno = st.pills("Tipo di Turno", LISTA_TIPI, selection_mode="single")
-    except AttributeError:
-        tipo_turno = st.radio("Tipo di Turno", LISTA_TIPI, horizontal=True)
+# --- SEZIONE INSERIMENTO (Compatta) ---
+with st.container():
+    # Riga 1: Data e Tipo affiancati per risparmiare spazio verticale
+    c1, c2 = st.columns([1, 1.5])
+    with c1:
+        data_input = st.date_input("Data", datetime.today(), format="DD/MM/YYYY", label_visibility="collapsed")
+    with c2:
+        tipo_turno = st.selectbox("Tipo", LISTA_TIPI, label_visibility="collapsed")
 
-    if not tipo_turno:
-        st.caption("👆 Seleziona un turno per continuare")
-
-    # Riga 3: Note
-    note_input = st.text_input("Note (opzionale)", placeholder="Es. Cambio con Marco")
-
-    # Riga 4: BOTTONE GIGANTE (Full width per pollice facile)
-    if st.button("SALVA TURNO ✅", type="primary", use_container_width=True):
-        if tipo_turno:
+    # Riga 2: Note e Bottone sulla stessa linea
+    c3, c4 = st.columns([2, 1])
+    with c3:
+        note_input = st.text_input("Note", placeholder="Note opzionali...", label_visibility="collapsed")
+    with c4:
+        if st.button("➕ SALVA", type="primary", use_container_width=True):
             df = carica_dati()
             nuova = pd.DataFrame([{"Data": data_input, "Tipo": tipo_turno, "Note": note_input}])
             df = pd.concat([df, nuova], ignore_index=True)
             salva_dati(df)
-            st.toast("Salvato con successo!", icon="🎉")
+            st.toast("Salvato!", icon="✅")
             st.rerun()
-        else:
-            st.warning("Seleziona che tipo di turno hai fatto!")
 
-# 3. STATISTICHE VELOCI (Mini dashboard)
+st.divider()
+
+# --- STORICO COMPATTO (Lista) ---
 df = carica_dati()
+
 if not df.empty:
+    # Statistiche "Inline" (sulla stessa riga)
     mese_corr = datetime.now().month
-    df["Data_dt"] = pd.to_datetime(df["Data"])
-    df_mese = df[df["Data_dt"].dt.month == mese_corr]
+    count = len(df[pd.to_datetime(df["Data"]).dt.month == mese_corr])
+    st.caption(f"Totale turni questo mese: **{count}**")
     
-    col1, col2 = st.columns(2)
-    col1.metric("Turni questo mese", len(df_mese))
-    # Calcola ultimo turno inserito
-    ultimo_turno = df.iloc[0]
-    col2.metric("Ultimo ins.", f"{ultimo_turno['Tipo']} ({ultimo_turno['Data'].strftime('%d/%m')})")
+    # Intestazione piccola
+    st.markdown("**Ultimi Inserimenti:**")
 
-st.markdown("---")
-
-# 4. LISTA TURNI A "SCHEDE" (Card View)
-st.subheader("Storico Recente")
-
-if not df.empty:
-    # Mostriamo solo gli ultimi 15 per velocità
-    for index, row in df.head(15).iterrows():
+    # Ciclo per stampare le righe
+    for index, row in df.head(10).iterrows(): # Mostra solo ultimi 10 per non intasare
         
-        # Scegliamo colore bordo/emoji in base al turno
         tipo = row['Tipo']
-        emoji = OPZIONI_TURNI.get(tipo, "📅")
+        emoji = OPZIONI_TURNI.get(tipo, "▪️")
+        data_fmt = row['Data'].strftime('%d/%m') # Solo giorno/mese (anno inutile)
+        giorno_sett = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"][row['Data'].weekday()]
         
-        # Creiamo la "Scheda"
-        with st.container(border=True):
-            c1, c2, c3 = st.columns([1, 4, 1])
+        # --- LAYOUT RIGA COMPATTA ---
+        # Col 1: Data (Piccola) | Col 2: Info Turno (Grande) | Col 3: Cancella (Piccolo)
+        k1, k2, k3 = st.columns([1.2, 3, 0.8], vertical_alignment="center")
+        
+        with k1:
+            # Data in grassetto, grigio scuro
+            st.markdown(f"<span style='color:#555; font-size:0.9rem'><b>{data_fmt}</b><br><small>{giorno_sett}</small></span>", unsafe_allow_html=True)
             
-            with c1:
-                # Icona grande
-                st.markdown(f"<h2 style='text-align: center; margin:0;'>{emoji}</h2>", unsafe_allow_html=True)
+        with k2:
+            # Emoji + Tipo + Nota (tutto su una riga se possibile)
+            nota_vis = f" <small style='color:gray'>({row['Note']})</small>" if row['Note'] else ""
+            st.markdown(f"<span style='font-size:1rem'>{emoji} <b>{tipo}</b>{nota_vis}</span>", unsafe_allow_html=True)
             
-            with c2:
-                # Dati Turno
-                data_fmt = row['Data'].strftime('%d/%m/%Y')
-                # Giorni della settimana in ita (hack veloce)
-                giorni = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"]
-                nome_giorno = giorni[row['Data'].weekday()]
-                
-                st.markdown(f"**{nome_giorno} {data_fmt}**")
-                st.caption(f"{tipo} • {row['Note']}")
-            
-            with c3:
-                # Tasto Cancella (Piccolo cestino)
-                if st.button("🗑️", key=f"del_{index}"):
-                    df = df.drop(index)
-                    salva_dati(df)
-                    st.rerun()
-else:
-    st.info("Nessun turno inserito.")
+        with k3:
+            # Bottone X minimale
+            if st.button("✕", key=f"del_{index}"):
+                df = df.drop(index)
+                salva_dati(df)
+                st.rerun()
+        
+        # Linea sottile di separazione
+        st.markdown("<hr style='margin: 0.3rem 0; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
 
-# 5. LINK ALLA MODALITÀ AVANZATA (Se serve modificare in massa)
-with st.expander("🛠️ Modalità Tabella (Modifica/Correggi)"):
-    st.caption("Usa questa tabella se devi modificare vecchi inserimenti.")
-    edited = st.data_editor(df, num_rows="dynamic", use_container_width=True, hide_index=True)
-    if st.button("Salva Modifiche Tabella"):
-        salva_dati(edited)
-        st.rerun()
-        
+    # Link per vedere tutto se serve
+    with st.expander("Vedi tabella completa"):
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+else:
+    st.info("Nessun dato.")
+    
