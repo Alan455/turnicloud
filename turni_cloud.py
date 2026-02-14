@@ -1,47 +1,41 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+import calendar
+from datetime import datetime, date, timedelta
 from streamlit_gsheets import GSheetsConnection
 
-# --- 1. CONFIGURAZIONE MOBILE ---
-st.set_page_config(page_title="Turni App", page_icon="📱", layout="centered")
+# --- 1. CONFIGURAZIONE E CSS ---
+st.set_page_config(page_title="Turni App", page_icon="📅", layout="centered")
 
-# --- 2. CSS "APP STYLE" (Il trucco per la grafica) ---
 st.markdown("""
     <style>
-    /* Nasconde menu standard */
+    /* Nasconde elementi inutili */
     #MainMenu, footer, header {visibility: hidden;}
     
-    /* Spaziatura ottimizzata per smartphone */
+    /* Ottimizzazione Mobile */
     .block-container {
-        padding-top: 1rem !important;
-        padding-left: 0.8rem !important;
-        padding-right: 0.8rem !important;
+        padding-top: 0.5rem !important;
         padding-bottom: 3rem !important;
     }
     
-    /* Stile Bottoni: Arrotondati e Moderni */
+    /* Stile Bottoni più "touch" */
     div[data-testid="stButton"] button {
-        border-radius: 12px;
+        border-radius: 10px;
         height: 45px;
-        font-weight: 600;
-        border: none;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        font-weight: bold;
     }
     
-    /* Stile delle Card (Tessere) */
-    div[data-testid="stVerticalBlockBorderWrapper"] {
-        border-radius: 15px;
-        background-color: #ffffff;
-        /* box-shadow: 0 1px 3px rgba(0,0,0,0.05); Rimosso per pulizia */
+    /* Stile Calendario (Tabella) */
+    div[data-testid="stDataFrame"] {
+        font-size: 16px; 
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- DATI ---
+# --- 2. COSTANTI E CONNESSIONE ---
 OPZIONI = ["Mattina", "Pomeriggio", "Sera", "Notte", "Ferie", "Malattia", "Ima"]
 
-# Mappa icone per un look grafico migliore
+# Mappa Emoji per il Calendario (compatta)
 ICONE = {
     "Mattina": "☀️", "Pomeriggio": "🌤️", "Sera": "🌆", 
     "Notte": "🌙", "Ferie": "🏖️", "Malattia": "🤒", "Ima": "🏥"
@@ -49,6 +43,13 @@ ICONE = {
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# Inizializzazione Session State per la navigazione del calendario
+if 'anno_view' not in st.session_state:
+    st.session_state.anno_view = datetime.now().year
+if 'mese_view' not in st.session_state:
+    st.session_state.mese_view = datetime.now().month
+
+# --- 3. FUNZIONI ---
 def gestisci_dati(mode="read", df_in=None):
     try:
         if mode == "read":
@@ -65,93 +66,126 @@ def gestisci_dati(mode="read", df_in=None):
     except Exception:
         return pd.DataFrame(columns=["Data", "Tipo", "Note"])
 
-# --- UI: HEADER ---
-st.markdown("### 👋 Ciao, ecco i tuoi turni")
+def cambio_mese(delta):
+    """Funzione per cambiare mese (avanti/indietro)"""
+    m = st.session_state.mese_view + delta
+    y = st.session_state.anno_view
+    if m > 12:
+        m = 1
+        y += 1
+    elif m < 1:
+        m = 12
+        y -= 1
+    st.session_state.mese_view = m
+    st.session_state.anno_view = y
 
-# --- UI: HERO SECTION (Riepilogo Mese) ---
-df = gestisci_dati("read")
-oggi = datetime.now()
-
-if not df.empty:
-    mask_mese = (pd.to_datetime(df["Data"]).dt.month == oggi.month) & (pd.to_datetime(df["Data"]).dt.year == oggi.year)
-    turni_mese = len(df[mask_mese])
+def crea_calendario_df(anno, mese, df_turni):
+    """Crea un DataFrame che assomiglia a un calendario visivo"""
+    cal = calendar.monthcalendar(anno, mese)
+    grid = []
     
-    # Card Riepilogo in alto (Stile Widget)
-    with st.container(border=True):
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            st.caption(f"Totale {oggi.strftime('%B').capitalize()}")
-            st.markdown(f"<h1 style='margin: -10px 0 0 0;'>{turni_mese}</h1>", unsafe_allow_html=True)
-        with c2:
-            st.markdown("<div style='text-align: right; font-size: 2rem;'>📅</div>", unsafe_allow_html=True)
+    # Filtriamo i turni del mese corrente per non cercarli ogni volta
+    mask = (pd.to_datetime(df_turni["Data"]).dt.year == anno) & (pd.to_datetime(df_turni["Data"]).dt.month == mese)
+    df_mese = df_turni[mask]
+    
+    # Creiamo dizionario {giorno: emoji} per accesso rapido
+    giorni_map = {}
+    for _, row in df_mese.iterrows():
+        day_num = row["Data"].day
+        emoji = ICONE.get(row["Tipo"], "•")
+        giorni_map[day_num] = emoji
+
+    for week in cal:
+        row_str = []
+        for day in week:
+            if day == 0:
+                row_str.append("") # Casella vuota (mese precedente/successivo)
+            else:
+                # Se c'è un turno, mostriamo "12 ☀️", altrimenti solo "12"
+                emoji = giorni_map.get(day, "")
+                cell_content = f"{day} {emoji}" if emoji else f"{day}"
+                row_str.append(cell_content)
+        grid.append(row_str)
         
-        # Barra di "progresso" mese (estetica)
-        giorni_nel_mese = 31 # Semplificazione visiva
-        progresso = min(turni_mese / giorni_nel_mese, 1.0)
-        st.progress(progresso)
+    return pd.DataFrame(grid, columns=["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"])
 
-st.markdown("<div style='height: 15px'></div>", unsafe_allow_html=True)
+# --- 4. INTERFACCIA UTENTE ---
 
-# --- UI: AZIONE (Inserimento Flottante) ---
-with st.expander("➕ AGGIUNGI NUOVO TURNO", expanded=True):
-    # Riga 1
-    c_date, c_type = st.columns([1.2, 1.5])
-    with c_date:
-        d_in = st.date_input("Data", datetime.today(), format="DD/MM/YYYY", label_visibility="collapsed")
-    with c_type:
-        t_in = st.selectbox("Tipo", OPZIONI, label_visibility="collapsed")
+# Header con Navigazione Calendario
+c_prev, c_title, c_next = st.columns([1, 3, 1], vertical_alignment="center")
+
+with c_prev:
+    if st.button("◀", key="prev_m"):
+        cambio_mese(-1)
+        st.rerun()
+
+with c_title:
+    nome_mese = date(st.session_state.anno_view, st.session_state.mese_view, 1).strftime('%B %Y')
+    # Hack per rendere maiuscolo in italiano (es. Febbraio 2026)
+    # Nota: su alcuni server Linux potrebbe restare in inglese (February), dipende dalle impostazioni locali
+    import locale
+    try:
+        locale.setlocale(locale.LC_TIME, "it_IT.UTF-8")
+        nome_mese = date(st.session_state.anno_view, st.session_state.mese_view, 1).strftime('%B %Y').capitalize()
+    except:
+        pass # Se fallisce usa il default inglese
+        
+    st.markdown(f"<h3 style='text-align: center; margin:0;'>{nome_mese}</h3>", unsafe_allow_html=True)
+
+with c_next:
+    if st.button("▶", key="next_m"):
+        cambio_mese(1)
+        st.rerun()
+
+# --- VISUALIZZAZIONE CALENDARIO ---
+df_completo = gestisci_dati("read")
+df_cal = crea_calendario_df(st.session_state.anno_view, st.session_state.mese_view, df_completo)
+
+# Mostriamo la tabella. Usiamo st.table per un look più pulito e statico, o dataframe per scroll
+# st.table è meglio per il calendario perché mostra tutto senza barre di scorrimento interne
+st.table(df_cal)
+
+# --- INSERIMENTO RAPIDO (Sotto il calendario) ---
+with st.expander("➕ Aggiungi / Modifica Turno", expanded=False):
+    c1, c2 = st.columns([1, 1.5])
+    with c1:
+        d_in = st.date_input("Data", datetime.today(), format="DD/MM/YYYY")
+    with c2:
+        t_in = st.pills("Tipo", OPZIONI, selection_mode="single", default="Mattina")
+        if not t_in: t_in = "Mattina" # Fallback
     
-    # Riga 2
-    c_note, c_btn = st.columns([2, 1])
-    with c_note:
-        n_in = st.text_input("Note", placeholder="Note...", label_visibility="collapsed")
-    with c_btn:
+    c3, c4 = st.columns([2, 1])
+    with c3:
+        n_in = st.text_input("Note", placeholder="Opzionale...")
+    with c4:
+        st.markdown("<div style='margin-top: 29px'></div>", unsafe_allow_html=True)
         if st.button("SALVA", type="primary"):
             nuova = pd.DataFrame([{"Data": d_in, "Tipo": t_in, "Note": n_in}])
-            gestisci_dati("write", pd.concat([df, nuova], ignore_index=True))
+            gestisci_dati("write", pd.concat([df_completo, nuova], ignore_index=True))
             st.toast("Salvato!", icon="✅")
             st.rerun()
 
-# --- UI: LISTA "APP STYLE" (Ultime 10 Attività) ---
-st.caption("ULTIMI INSERIMENTI")
+# --- LISTA DETTAGLIATA (Sotto, per chi vuole leggere le note) ---
+st.markdown("---")
+st.caption(f"Dettagli turni di {nome_mese}")
 
-if not df.empty:
-    for i, row in df.head(10).iterrows():
-        # Creiamo una "Card" per ogni turno
-        with st.container(border=True):
-            # Layout a griglia: Icona | Info | Tasto Cancella
-            k1, k2, k3 = st.columns([0.7, 3, 0.5])
-            
-            with k1:
-                # Icona grande centrata
-                icona = ICONE.get(row['Tipo'], "📅")
-                st.markdown(f"<div style='font-size: 1.8rem; text-align: center;'>{icona}</div>", unsafe_allow_html=True)
-            
-            with k2:
-                # Data e Tipo
-                data_str = row['Data'].strftime('%d/%m')
-                giorno = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"][row['Data'].weekday()]
-                
-                # HTML per formattazione precisa
-                st.markdown(f"""
-                <div style='line-height: 1.2;'>
-                    <span style='font-weight: bold; font-size: 1rem;'>{row['Tipo']}</span>
-                    <br>
-                    <span style='color: gray; font-size: 0.8rem;'>{giorno} {data_str}</span>
-                    <span style='color: #888; font-size: 0.8rem; font-style: italic;'> {row['Note']}</span>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with k3:
-                # Bottone Cancella invisibile ma cliccabile
-                if st.button("✕", key=f"del_{i}"):
-                    gestisci_dati("write", df.drop(i))
-                    st.rerun()
+# Filtriamo solo la lista del mese selezionato
+mask_lista = (pd.to_datetime(df_completo["Data"]).dt.year == st.session_state.anno_view) & \
+             (pd.to_datetime(df_completo["Data"]).dt.month == st.session_state.mese_view)
+df_lista_mese = df_completo[mask_lista]
 
-    # Link per vedere tutto
-    if st.button("Vedi storico completo (Tabella)"):
-        st.dataframe(df, use_container_width=True, hide_index=True)
-
+if not df_lista_mese.empty:
+    for i, row in df_lista_mese.iterrows():
+        col_icon, col_info, col_del = st.columns([0.5, 3, 0.5], vertical_alignment="center")
+        with col_icon:
+            st.write(ICONE.get(row['Tipo'], "📅"))
+        with col_info:
+            d_fmt = row['Data'].strftime('%d/%m')
+            st.markdown(f"**{d_fmt}** - {row['Tipo']} <small>({row['Note']})</small>", unsafe_allow_html=True)
+        with col_del:
+            if st.button("✕", key=f"del_cal_{i}"):
+                gestisci_dati("write", df_completo.drop(i))
+                st.rerun()
 else:
-    st.info("Nessun turno. Aggiungine uno sopra!")
+    st.info("Nessun turno in questo mese.")
     
