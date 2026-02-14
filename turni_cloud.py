@@ -30,15 +30,22 @@ st.markdown("""
         font-size: 16px; 
     }
     
-    /* Stile per il conteggio */
+    /* --- CORREZIONE COLORI --- */
     .summary-box {
-        background-color: #f0f2f6;
-        padding: 10px;
-        border-radius: 8px;
+        background-color: #262730; /* Sfondo Scuro (Grigio/Nero Streamlit) */
+        border: 1px solid #4b4b4b; /* Bordino grigio */
+        color: white !important;   /* Testo BIANCO forzato */
+        padding: 15px;
+        border-radius: 12px;
         text-align: center;
-        margin-bottom: 10px;
-        font-size: 14px;
+        margin-bottom: 15px;
+        font-size: 15px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.3); /* Ombretta per staccarlo */
     }
+    
+    /* Se vuoi un tocco di colore, scommenta questa riga sotto per farlo blu: */
+    /* .summary-box { background-color: #0e1117; border: 1px solid #1f77b4; } */
+
     </style>
     """, unsafe_allow_html=True)
 
@@ -85,7 +92,6 @@ def crea_calendario_df(anno, mese, df_turni):
     cal = calendar.monthcalendar(anno, mese)
     grid = []
     
-    # Filtro mese
     mask = (pd.to_datetime(df_turni["Data"]).dt.year == anno) & (pd.to_datetime(df_turni["Data"]).dt.month == mese)
     df_mese = df_turni[mask]
     
@@ -121,35 +127,32 @@ with c_title:
         nome_mese = date(st.session_state.anno_view, st.session_state.mese_view, 1).strftime('%B %Y')
     st.markdown(f"<h3 style='text-align: center; margin:0;'>{nome_mese}</h3>", unsafe_allow_html=True)
 
-# --- NUOVO: RIEPILOGO CONTEGGI ---
+# --- RIEPILOGO CONTEGGI (SFONDO SCURO) ---
 df_completo = gestisci_dati("read")
-
-# Filtriamo solo il mese corrente
 mask_mese = (pd.to_datetime(df_completo["Data"]).dt.year == st.session_state.anno_view) & \
             (pd.to_datetime(df_completo["Data"]).dt.month == st.session_state.mese_view)
 df_mese_corr = df_completo[mask_mese]
 
 if not df_mese_corr.empty:
-    # Calcolo totali
     totale = len(df_mese_corr)
     conteggi = df_mese_corr["Tipo"].value_counts()
     
-    # Costruiamo la stringa visiva (es: ☀️ 5   🌙 2)
     dettaglio_str = ""
     for tipo, count in conteggi.items():
         icona = ICONE.get(tipo, "")
-        if icona: # Mostra solo se ha un'icona
-            dettaglio_str += f"&nbsp;&nbsp;{icona} <b>{count}</b>"
+        if icona:
+            dettaglio_str += f"<span style='white-space: nowrap; margin: 0 5px;'>{icona} <b>{count}</b></span>"
             
-    # Mostriamo il box colorato
+    # Box ad alto contrasto
     st.markdown(f"""
         <div class="summary-box">
-            Totale Turni: <b>{totale}</b><br>
-            <span style='font-size: 16px'>{dettaglio_str}</span>
+            <div style="font-size: 14px; opacity: 0.8; margin-bottom: 5px;">TOTALE TURNI</div>
+            <div style="font-size: 28px; font-weight: bold; margin-bottom: 10px;">{totale}</div>
+            <div style="font-size: 16px; border-top: 1px solid #555; padding-top: 10px;">{dettaglio_str}</div>
         </div>
     """, unsafe_allow_html=True)
 else:
-    st.write("") # Spazio vuoto se non ci sono turni
+    st.info("Nessun turno inserito in questo mese.")
 
 # --- CALENDARIO ---
 df_cal = crea_calendario_df(st.session_state.anno_view, st.session_state.mese_view, df_completo)
@@ -161,7 +164,6 @@ with st.expander("➕ Aggiungi / Modifica Turno", expanded=False):
     with c1:
         d_in = st.date_input("Data", datetime.today(), format="DD/MM/YYYY")
     with c2:
-        # Fallback per versioni vecchie di streamlit
         try:
             t_in = st.pills("Tipo", OPZIONI, selection_mode="single", default="Mattina")
         except AttributeError:
