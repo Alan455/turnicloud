@@ -3,39 +3,49 @@ import pandas as pd
 from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 
-# --- CONFIGURAZIONE PAGINA MOBILE ---
-st.set_page_config(page_title="Turni", page_icon="📱", layout="centered")
+# --- 1. CONFIGURAZIONE MOBILE ---
+st.set_page_config(page_title="Turni App", page_icon="📱", layout="centered")
 
-# --- CSS: OTTIMIZZAZIONE TOUCH ---
+# --- 2. CSS "APP STYLE" (Il trucco per la grafica) ---
 st.markdown("""
     <style>
-    /* Nasconde header/footer inutili */
+    /* Nasconde menu standard */
     #MainMenu, footer, header {visibility: hidden;}
     
-    /* Spaziatura ottimizzata per le dita */
+    /* Spaziatura ottimizzata per smartphone */
     .block-container {
         padding-top: 1rem !important;
-        padding-bottom: 5rem !important; /* Spazio extra in basso per lo scroll */
+        padding-left: 0.8rem !important;
+        padding-right: 0.8rem !important;
+        padding-bottom: 3rem !important;
     }
     
-    /* Pulsanti grandi e facili da premere */
+    /* Stile Bottoni: Arrotondati e Moderni */
     div[data-testid="stButton"] button {
-        width: 100%;
-        height: 50px; /* Più alto per il dito */
         border-radius: 12px;
-        font-weight: bold;
-        font-size: 18px;
+        height: 45px;
+        font-weight: 600;
+        border: none;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }
     
-    /* Stile per i totali */
-    div[data-testid="stMetricValue"] {
-        font-size: 24px;
+    /* Stile delle Card (Tessere) */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        border-radius: 15px;
+        background-color: #ffffff;
+        /* box-shadow: 0 1px 3px rgba(0,0,0,0.05); Rimosso per pulizia */
     }
     </style>
     """, unsafe_allow_html=True)
 
 # --- DATI ---
 OPZIONI = ["Mattina", "Pomeriggio", "Sera", "Notte", "Ferie", "Malattia", "Ima"]
+
+# Mappa icone per un look grafico migliore
+ICONE = {
+    "Mattina": "☀️", "Pomeriggio": "🌤️", "Sera": "🌆", 
+    "Notte": "🌙", "Ferie": "🏖️", "Malattia": "🤒", "Ima": "🏥"
+}
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -52,89 +62,96 @@ def gestisci_dati(mode="read", df_in=None):
             df_in["Data"] = pd.to_datetime(df_in["Data"]).dt.strftime('%Y-%m-%d')
             conn.update(worksheet="Foglio1", data=df_in)
             return True
-    except Exception as e:
+    except Exception:
         return pd.DataFrame(columns=["Data", "Tipo", "Note"])
 
-# --- TITOLO MINIMAL ---
-st.markdown("### 📅 I Miei Turni")
+# --- UI: HEADER ---
+st.markdown("### 👋 Ciao, ecco i tuoi turni")
 
-# --- 1. NUOVO INSERIMENTO (Ottimizzato) ---
-# Usiamo un container con bordo per evidenziare l'area di azione
-with st.container(border=True):
-    st.caption("Nuovo Inserimento")
-    
-    # DATA: Sempre default a OGGI
-    col_data, col_note = st.columns([1, 1.5])
-    with col_data:
-        data_input = st.date_input("Data", datetime.today(), format="DD/MM/YYYY", label_visibility="collapsed")
-    with col_note:
-        note_input = st.text_input("Note", placeholder="Note opzionali...", label_visibility="collapsed")
-
-    # TIPO: Usiamo i PILLS (Pillole) o RADIO orizzontale
-    # È molto più veloce del menu a tendina: un tocco e via.
-    # Se st.pills non va (versione vecchia), usa st.radio
-    try:
-        tipo_turno = st.pills("Tipo", OPZIONI, selection_mode="single", label_visibility="collapsed")
-    except AttributeError:
-        tipo_turno = st.radio("Tipo", OPZIONI, horizontal=True, label_visibility="collapsed")
-
-    # SPAZIO E BOTTONE
-    st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
-    
-    # Il bottone è disabilitato se non hai scelto il turno (Feedback visivo)
-    if st.button("SALVA TURNO ✅", type="primary", disabled=(not tipo_turno)):
-        df = gestisci_dati("read")
-        nuova = pd.DataFrame([{"Data": data_input, "Tipo": tipo_turno, "Note": note_input}])
-        gestisci_dati("write", pd.concat([df, nuova], ignore_index=True))
-        st.toast(f"Salvato: {tipo_turno} il {data_input.strftime('%d/%m')}", icon="🎉")
-        st.rerun()
-
-# --- 2. DASHBOARD TOTALI (Compatta) ---
+# --- UI: HERO SECTION (Riepilogo Mese) ---
 df = gestisci_dati("read")
+oggi = datetime.now()
 
 if not df.empty:
-    oggi = datetime.now()
-    # Filtro mese corrente
     mask_mese = (pd.to_datetime(df["Data"]).dt.month == oggi.month) & (pd.to_datetime(df["Data"]).dt.year == oggi.year)
-    df_mese = df[mask_mese]
+    turni_mese = len(df[mask_mese])
     
-    # Calcoli veloci
-    tot_turni = len(df_mese)
-    # Cerchiamo l'ultimo inserito per conferma visiva
-    ultimo = df.iloc[0]
-    txt_ultimo = f"{ultimo['Tipo']} ({ultimo['Data'].strftime('%d/%m')})"
+    # Card Riepilogo in alto (Stile Widget)
+    with st.container(border=True):
+        c1, c2 = st.columns([2, 1])
+        with c1:
+            st.caption(f"Totale {oggi.strftime('%B').capitalize()}")
+            st.markdown(f"<h1 style='margin: -10px 0 0 0;'>{turni_mese}</h1>", unsafe_allow_html=True)
+        with c2:
+            st.markdown("<div style='text-align: right; font-size: 2rem;'>📅</div>", unsafe_allow_html=True)
+        
+        # Barra di "progresso" mese (estetica)
+        giorni_nel_mese = 31 # Semplificazione visiva
+        progresso = min(turni_mese / giorni_nel_mese, 1.0)
+        st.progress(progresso)
 
-    # Visualizzazione a 2 colonne
-    k1, k2 = st.columns(2)
-    k1.metric("Totale Mese", tot_turni)
-    k2.metric("Ultimo Inserito", txt_ultimo)
+st.markdown("<div style='height: 15px'></div>", unsafe_allow_html=True)
 
-    st.markdown("---")
-
-    # --- 3. TABELLA STORICO ---
-    st.caption("Modifica o Cancella qui sotto 👇")
+# --- UI: AZIONE (Inserimento Flottante) ---
+with st.expander("➕ AGGIUNGI NUOVO TURNO", expanded=True):
+    # Riga 1
+    c_date, c_type = st.columns([1.2, 1.5])
+    with c_date:
+        d_in = st.date_input("Data", datetime.today(), format="DD/MM/YYYY", label_visibility="collapsed")
+    with c_type:
+        t_in = st.selectbox("Tipo", OPZIONI, label_visibility="collapsed")
     
-    column_config = {
-        "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", required=True, width="small"),
-        "Tipo": st.column_config.SelectboxColumn("Tipo", options=OPZIONI, required=True, width="medium"),
-        "Note": st.column_config.TextColumn("Note", width="small")
-    }
-
-    df_modificato = st.data_editor(
-        df,
-        column_config=column_config,
-        num_rows="dynamic",
-        use_container_width=True,
-        hide_index=True,
-        height=350 # Altezza fissa per scorrere bene col dito
-    )
-
-    if st.button("💾 SALVA MODIFICHE TABELLA"):
-        # Reset index serve per confrontare i dati ignorando l'ordine degli indici
-        if not df.reset_index(drop=True).equals(df_modificato.reset_index(drop=True)):
-            gestisci_dati("write", df_modificato)
-            st.toast("Tabella Aggiornata!", icon="💾")
+    # Riga 2
+    c_note, c_btn = st.columns([2, 1])
+    with c_note:
+        n_in = st.text_input("Note", placeholder="Note...", label_visibility="collapsed")
+    with c_btn:
+        if st.button("SALVA", type="primary"):
+            nuova = pd.DataFrame([{"Data": d_in, "Tipo": t_in, "Note": n_in}])
+            gestisci_dati("write", pd.concat([df, nuova], ignore_index=True))
+            st.toast("Salvato!", icon="✅")
             st.rerun()
+
+# --- UI: LISTA "APP STYLE" (Ultime 10 Attività) ---
+st.caption("ULTIMI INSERIMENTI")
+
+if not df.empty:
+    for i, row in df.head(10).iterrows():
+        # Creiamo una "Card" per ogni turno
+        with st.container(border=True):
+            # Layout a griglia: Icona | Info | Tasto Cancella
+            k1, k2, k3 = st.columns([0.7, 3, 0.5])
+            
+            with k1:
+                # Icona grande centrata
+                icona = ICONE.get(row['Tipo'], "📅")
+                st.markdown(f"<div style='font-size: 1.8rem; text-align: center;'>{icona}</div>", unsafe_allow_html=True)
+            
+            with k2:
+                # Data e Tipo
+                data_str = row['Data'].strftime('%d/%m')
+                giorno = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"][row['Data'].weekday()]
+                
+                # HTML per formattazione precisa
+                st.markdown(f"""
+                <div style='line-height: 1.2;'>
+                    <span style='font-weight: bold; font-size: 1rem;'>{row['Tipo']}</span>
+                    <br>
+                    <span style='color: gray; font-size: 0.8rem;'>{giorno} {data_str}</span>
+                    <span style='color: #888; font-size: 0.8rem; font-style: italic;'> {row['Note']}</span>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with k3:
+                # Bottone Cancella invisibile ma cliccabile
+                if st.button("✕", key=f"del_{i}"):
+                    gestisci_dati("write", df.drop(i))
+                    st.rerun()
+
+    # Link per vedere tutto
+    if st.button("Vedi storico completo (Tabella)"):
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
 else:
-    st.info("Inizia aggiungendo un turno sopra! 👆")
+    st.info("Nessun turno. Aggiungine uno sopra!")
     
