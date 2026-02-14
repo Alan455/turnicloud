@@ -7,36 +7,63 @@ from streamlit_gsheets import GSheetsConnection
 # --- 1. CONFIGURAZIONE ---
 st.set_page_config(page_title="Turni App", page_icon="📅", layout="centered")
 
-# --- CSS: RENDERE I BOTTONI "CELLE DI CALENDARIO" ---
+# --- CSS: MAGIC FIX PER MOBILE ---
 st.markdown("""
     <style>
     #MainMenu, footer, header {visibility: hidden;}
     
+    /* Riduce i margini generali */
     .block-container {
         padding-top: 0.5rem !important;
-        padding-bottom: 3rem !important;
+        padding-bottom: 5rem !important;
+        padding-left: 0.2rem !important;
+        padding-right: 0.2rem !important;
     }
     
-    /* Stile Griglia Calendario */
-    div[data-testid="stHorizontalBlock"] {
-        gap: 0.2rem; /* Spazio minimo tra i giorni */
+    /* --- CSS PER FORZARE LA GRIGLIA SU MOBILE --- */
+    @media (max-width: 640px) {
+        /* Impedisce alle colonne di andare a capo (stacking) */
+        div[data-testid="stHorizontalBlock"] {
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            gap: 2px !important; /* Spazio piccolissimo tra i bottoni */
+        }
+        
+        /* Permette alle colonne di diventare piccolissime */
+        div[data-testid="column"] {
+            flex: 1 !important;
+            width: auto !important;
+            min-width: 0px !important;
+        }
+        
+        /* Stile Bottoni Mobile: Testo piccolo, niente padding */
+        div[data-testid="stButton"] button {
+            padding: 0px !important;
+            font-size: 10px !important; /* Testo piccolo per farci stare l'emoji */
+            height: 45px !important;
+            line-height: 1.2 !important;
+            white-space: pre-wrap !important; /* Permette all'emoji di andare a capo se serve */
+        }
+        
+        /* Nasconde i giorni della settimana testuali se troppo piccoli, 
+           o li fa molto piccoli */
+        div[data-testid="stMarkdownContainer"] p {
+            font-size: 10px !important;
+        }
     }
     
-    /* Bottoni dei giorni */
+    /* Stile Desktop (Normale) */
     div[data-testid="stButton"] button {
         width: 100%;
-        padding: 0px;
-        height: 50px; /* Altezza fissa per quadrati */
-        border-radius: 8px;
-        border: 1px solid #eee;
+        border-radius: 6px;
+        border: 1px solid #ddd;
         font-weight: bold;
-        font-size: 14px;
     }
     
-    /* Giorno Selezionato (Evidenziato) */
-    .selected-day {
-        border: 2px solid #ff4b4b !important;
-        background-color: #ffebeb !important;
+    /* Giorno Selezionato */
+    div[data-testid="stButton"] button:focus {
+        border-color: #ff4b4b;
+        background-color: #ffebeb;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -53,7 +80,7 @@ if 'anno_view' not in st.session_state:
 if 'mese_view' not in st.session_state:
     st.session_state.mese_view = datetime.now().month
 if 'selected_date' not in st.session_state:
-    st.session_state.selected_date = None # Nessun giorno selezionato all'inizio
+    st.session_state.selected_date = None
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -81,10 +108,12 @@ def naviga_mese(delta):
     elif m < 1: m, y = 12, y - 1
     st.session_state.mese_view = m
     st.session_state.anno_view = y
-    st.session_state.selected_date = None # Reset selezione al cambio mese
+    st.session_state.selected_date = None
 
 # --- UI: NAVIGAZIONE ---
-c_prev, c_title, c_next = st.columns([1, 4, 1], vertical_alignment="center")
+# Usiamo gap="small" per tenere i tasti vicini
+c_prev, c_title, c_next = st.columns([1, 4, 1], gap="small", vertical_alignment="center")
+
 with c_prev:
     if st.button("◀", key="prev"): naviga_mese(-1); st.rerun()
 with c_next:
@@ -99,54 +128,55 @@ with c_title:
         nome = date(st.session_state.anno_view, st.session_state.mese_view, 1).strftime('%B %Y')
     st.markdown(f"<h3 style='text-align: center; margin:0;'>{nome}</h3>", unsafe_allow_html=True)
 
-st.markdown("---")
+st.write("") # Spaziatura minima
 
-# --- UI: GRIGLIA CALENDARIO (CLICCABILE) ---
+# --- UI: GRIGLIA CALENDARIO ---
 df = gestisci_dati("read")
 
-# Intestazione giorni
+# 1. Intestazione Giorni (Lun Mar...)
 giorni = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"]
-cols = st.columns(7)
+cols_header = st.columns(7)
 for i, g in enumerate(giorni):
-    cols[i].markdown(f"<div style='text-align:center; font-size:12px; color:gray'>{g}</div>", unsafe_allow_html=True)
+    # Riduciamo il font al minimo per mobile
+    cols_header[i].markdown(f"<div style='text-align:center; font-size:11px; font-weight:bold; color:#666'>{g}</div>", unsafe_allow_html=True)
 
-# Generazione Griglia
+# 2. Dati Turni
 cal_matrix = calendar.monthcalendar(st.session_state.anno_view, st.session_state.mese_view)
 
-# Mappa rapida {giorno: (emoji, tipo, nota)}
 turni_mese = {}
 mask = (pd.to_datetime(df["Data"]).dt.year == st.session_state.anno_view) & \
        (pd.to_datetime(df["Data"]).dt.month == st.session_state.mese_view)
 for _, row in df[mask].iterrows():
-    turni_mese[row["Data"].day] = (ICONE.get(row["Tipo"], ""), row["Tipo"], row["Note"])
+    turni_mese[row["Data"].day] = ICONE.get(row["Tipo"], "")
 
-# Disegno i bottoni
+# 3. Disegno Griglia
 for week in cal_matrix:
     cols = st.columns(7)
     for i, day in enumerate(week):
         if day == 0:
-            cols[i].write("") # Cella vuota
+            cols[i].write("") # Vuoto
         else:
-            # Contenuto bottone
-            emoji = turni_mese.get(day, ("", "", ""))[0]
-            label = f"{day}\n{emoji}"
+            emoji = turni_mese.get(day, "")
+            # Se c'è l'emoji, mettiamo solo quella (più visibile su mobile)
+            # Altrimenti solo il numero del giorno
+            if emoji:
+                label = f"{day}\n{emoji}"
+            else:
+                label = f"{day}"
             
-            # Tasto Cliccabile
-            # Se clicchi, salviamo quel giorno in session_state
             if cols[i].button(label, key=f"btn_{day}"):
                 st.session_state.selected_date = date(st.session_state.anno_view, st.session_state.mese_view, day)
                 st.rerun()
 
-# --- UI: PANNELLO MODIFICA (Compare solo se clicchi) ---
+# --- UI: PANNELLO MODIFICA ---
 if st.session_state.selected_date:
     sel_dt = st.session_state.selected_date
     st.markdown("---")
-    st.markdown(f"#### ✏️ Modifica: {sel_dt.strftime('%d/%m/%Y')}")
     
-    # Cerchiamo se esiste già un turno in quel giorno
+    # Intestazione pannello
+    st.markdown(f"#### ✏️ {sel_dt.strftime('%d/%m')} - Modifica")
+    
     turno_esistente = df[df["Data"] == sel_dt]
-    
-    # Valori di default
     def_tipo = None
     def_note = ""
     esiste = False
@@ -155,43 +185,32 @@ if st.session_state.selected_date:
         esiste = True
         def_tipo = turno_esistente.iloc[0]["Tipo"]
         def_note = turno_esistente.iloc[0]["Note"]
-        # Se il tipo nel file non è nella lista (es. vecchio), fallback
         if def_tipo not in OPZIONI: def_tipo = None 
 
-    # Form di Modifica
+    # Box Modifica
     with st.container(border=True):
-        tipo_sel = st.pills("Tipo", OPZIONI, selection_mode="single", default=def_tipo)
-        note_sel = st.text_input("Note", value=def_note)
+        # Usiamo selectbox che è più sicuro su mobile rispetto a pills in spazi stretti
+        tipo_sel = st.selectbox("Tipo Turno", OPZIONI, index=OPZIONI.index(def_tipo) if def_tipo else 0, label_visibility="collapsed")
+        note_sel = st.text_input("Note", value=def_note, placeholder="Note...")
+        
+        st.write("") # Spazio
         
         c_salva, c_elimina = st.columns(2)
-        
         with c_salva:
             if st.button("💾 SALVA", type="primary"):
-                # 1. Rimuovi vecchio se c'era
-                df = df[df["Data"] != sel_dt]
-                # 2. Aggiungi nuovo
-                if tipo_sel:
-                    nuova = pd.DataFrame([{"Data": sel_dt, "Tipo": tipo_sel, "Note": note_sel}])
-                    df = pd.concat([df, nuova], ignore_index=True)
-                    gestisci_dati("write", df)
-                    st.toast("Salvato!", icon="✅")
-                    st.rerun()
-                else:
-                    st.warning("Seleziona un tipo!")
+                df = df[df["Data"] != sel_dt] # Rimuovi vecchio
+                nuova = pd.DataFrame([{"Data": sel_dt, "Tipo": tipo_sel, "Note": note_sel}])
+                gestisci_dati("write", pd.concat([df, nuova], ignore_index=True))
+                st.toast("Salvato!", icon="✅")
+                st.session_state.selected_date = None
+                st.rerun()
 
         with c_elimina:
             if esiste:
                 if st.button("🗑️ ELIMINA"):
-                    df = df[df["Data"] != sel_dt] # Filtra via quel giorno
+                    df = df[df["Data"] != sel_dt]
                     gestisci_dati("write", df)
                     st.toast("Eliminato!", icon="🗑️")
-                    st.session_state.selected_date = None # Chiudi pannello
+                    st.session_state.selected_date = None
                     st.rerun()
-            else:
-                st.write("") # Spazio vuoto se non c'è nulla da eliminare
-
-else:
-    # Messaggio guida se non hai cliccato nulla
-    st.markdown("---")
-    st.caption("👆 Tocca un giorno nel calendario per aggiungere o modificare un turno.")
-    
+                    
